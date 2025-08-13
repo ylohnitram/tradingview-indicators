@@ -1,0 +1,181 @@
+//@version=5
+indicator("CCE - ORB", overlay=true)
+
+// =============================================================================
+// INPUT SETTINGS
+// =============================================================================
+
+// ORB (Opening Range Breakout) Settings
+inputMax = input(15, title="ORB total time (minutes)", group="ORB Settings")
+sess = input.session("0830-0845", title="ORB Session Time", group="ORB Settings")
+show_extensions = input(true, title="Show Extension Levels", group="ORB Settings")
+
+// Session Display Settings
+session_display = input.string("Morning Only", title="Display Sessions", options=["Morning Only", "Till Afternoon"], group="Session Settings")
+morning_end = input.int(12, title="Morning End Hour (24h format)", minval=0, maxval=23, group="Session Settings")
+afternoon_end = input.int(21, title="Afternoon End Hour (24h format)", minval=0, maxval=23, group="Session Settings")
+
+// VWAP Settings
+show_vwap = input(true, title="Show VWAP", group="VWAP Settings")
+src = input(title="Source", defval=hlc3, group="VWAP Settings")
+
+// =============================================================================
+// ORB CALCULATION LOGIC
+// =============================================================================
+
+t = time(timeframe.period, sess + ":1234567")
+hide = timeframe.isintraday and timeframe.multiplier <= inputMax
+
+in_session = not na(t)
+is_first = in_session and not in_session[1]
+session_end = in_session[1] and not in_session
+
+// =============================================================================
+// CURRENT DAY FILTER - LAST BAR'S DATE AS "TODAY"
+// =============================================================================
+
+// Use the last bar's date as reference for "today"
+last_bar_day = dayofmonth(time[barstate.isrealtime ? 0 : 0], syminfo.timezone)
+last_bar_month = month(time[barstate.isrealtime ? 0 : 0], syminfo.timezone)
+last_bar_year = year(time[barstate.isrealtime ? 0 : 0], syminfo.timezone)
+
+// Check if current bar is from the same day as the last bar
+is_today = dayofmonth(time, syminfo.timezone) == last_bar_day and 
+           month(time, syminfo.timezone) == last_bar_month and 
+           year(time, syminfo.timezone) == last_bar_year
+
+// =============================================================================
+// SESSION TIME LOGIC
+// =============================================================================
+
+current_hour = hour(time, syminfo.timezone)
+
+is_morning_period = current_hour >= 8 and current_hour < morning_end
+is_afternoon_period = current_hour >= 12 and current_hour < afternoon_end
+
+show_in_current_session = false
+if session_display == "Morning Only"
+    show_in_current_session := is_morning_period
+else // "Till Afternoon"
+    show_in_current_session := is_morning_period or is_afternoon_period
+
+// =============================================================================
+// ORB HIGH/LOW TRACKING
+// =============================================================================
+
+var float stored_orb_high = na
+var float stored_orb_low = na
+var int orb_session_end_bar = na
+var array<line> orb_lines = array.new<line>()
+
+orb_high = float(na)
+orb_low = float(na)
+
+if is_first
+    orb_high := high
+    orb_low := low
+    // Clear old lines safely
+    if array.size(orb_lines) > 0
+        for i = 0 to array.size(orb_lines) - 1
+            line.delete(array.get(orb_lines, i))
+        array.clear(orb_lines)
+else
+    orb_high := orb_high[1]
+    orb_low := orb_low[1]
+    
+if high > orb_high and in_session
+    orb_high := high
+if low < orb_low and in_session
+    orb_low := low
+
+// Store ORB values when session ends
+if session_end
+    stored_orb_high := orb_high
+    stored_orb_low := orb_low
+    orb_session_end_bar := bar_index
+
+// =============================================================================
+// ORB EXTENSION LEVELS CALCULATION
+// =============================================================================
+
+orb_range = stored_orb_high - stored_orb_low
+half_range = orb_range / 2
+
+high_ext1 = stored_orb_high + half_range
+high_ext2 = high_ext1 + half_range  
+high_ext3 = high_ext2 + half_range
+
+low_ext1 = stored_orb_low - half_range
+low_ext2 = low_ext1 - half_range
+low_ext3 = low_ext2 - half_range
+
+// =============================================================================
+// UNIFIED DISPLAY CONDITION WITH TODAY FILTER
+// =============================================================================
+
+// All elements use the same condition - active during session AND lines are being drawn AND is today
+show_all_elements = not na(stored_orb_high) and show_in_current_session and not na(orb_session_end_bar) and is_today
+
+// =============================================================================
+// DYNAMIC LINES - UPDATE LENGTH EACH BAR
+// =============================================================================
+
+// Update lines each bar to match fill length
+if show_all_elements
+    
+    // Clear old lines safely
+    if array.size(orb_lines) > 0
+        for i = 0 to array.size(orb_lines) - 1
+            line.delete(array.get(orb_lines, i))
+        array.clear(orb_lines)
+    
+    // Draw lines from ORB session end to current bar
+    current_bar = bar_index
+    
+    // Draw ORB lines
+    array.push(orb_lines, line.new(orb_session_end_bar, stored_orb_high, current_bar, stored_orb_high, color=color.gray, width=2, style=line.style_solid))
+    array.push(orb_lines, line.new(orb_session_end_bar, stored_orb_low, current_bar, stored_orb_low, color=color.gray, width=2, style=line.style_solid))
+    
+    // Draw extension lines if enabled
+    if show_extensions
+        array.push(orb_lines, line.new(orb_session_end_bar, high_ext1, current_bar, high_ext1, color=color.new(color.green, 30), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_end_bar, high_ext2, current_bar, high_ext2, color=color.new(color.green, 50), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_end_bar, high_ext3, current_bar, high_ext3, color=color.new(color.green, 70), width=1, style=line.style_solid))
+        
+        array.push(orb_lines, line.new(orb_session_end_bar, low_ext1, current_bar, low_ext1, color=color.new(color.red, 30), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_end_bar, low_ext2, current_bar, low_ext2, color=color.new(color.red, 50), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_end_bar, low_ext3, current_bar, low_ext3, color=color.new(color.red, 70), width=1, style=line.style_solid))
+
+// =============================================================================
+// VWAP CALCULATION
+// =============================================================================
+
+isNewPeriod = is_first
+
+float vwapValue = na
+if show_vwap
+    [_vwap, _stdevUpper, _] = ta.vwap(src, isNewPeriod, 1)
+    vwapValue := _vwap
+
+vwap_color = close > vwapValue ? color.green : color.red
+
+// Plot VWAP - synchronized with lines and only for today
+plot(show_vwap and show_all_elements ? vwapValue : na, title="VWAP", color=vwap_color, linewidth=2)
+
+// =============================================================================
+// GRAY FILL - SYNCHRONIZED WITH LINES AND ONLY FOR TODAY
+// =============================================================================
+
+// Plot invisible lines for fill between ORB levels during session
+plotHigh = plot(show_all_elements ? stored_orb_high : na, color=color.new(color.white, 100), linewidth=0, title="ORB High Fill")
+plotLow = plot(show_all_elements ? stored_orb_low : na, color=color.new(color.white, 100), linewidth=0, title="ORB Low Fill")
+
+// Fill between the invisible lines
+fill(plotHigh, plotLow, color=show_all_elements ? color.new(color.gray, 85) : na, title="ORB Fill")
+
+// =============================================================================
+// MIDLINE - THIN GRAY LINE IN THE MIDDLE OF ORB RANGE
+// =============================================================================
+
+mid_orb = (stored_orb_high + stored_orb_low) / 2
+plot(show_all_elements ? mid_orb : na, color=color.new(color.gray, 50), linewidth=1, title="ORB Midline")
