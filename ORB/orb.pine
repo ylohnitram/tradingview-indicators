@@ -6,53 +6,62 @@ indicator("CCE - ORB", overlay=true)
 // =============================================================================
 
 // ORB (Opening Range Breakout) Settings
-inputMax = input(15, title="ORB total time (minutes)", group="ORB Settings")
-sess = input.session("0830-0845", title="ORB Session Time", group="ORB Settings")
+orb_duration_minutes = input.int(15, title="ORB Duration (minutes)", minval=1, maxval=120, group="ORB Settings")
 show_extensions = input(true, title="Show Extension Levels", group="ORB Settings")
 
-// Session Display Settings
+// Session Display Settings - BACK WITH AUTO-DETECTION
 session_display = input.string("Morning Only", title="Display Sessions", options=["Morning Only", "Till Afternoon"], group="Session Settings")
-morning_end = input.int(12, title="Morning End Hour (24h format)", minval=0, maxval=23, group="Session Settings")
-afternoon_end = input.int(21, title="Afternoon End Hour (24h format)", minval=0, maxval=23, group="Session Settings")
 
 // VWAP Settings
 show_vwap = input(true, title="Show VWAP", group="VWAP Settings")
 src = input(title="Source", defval=hlc3, group="VWAP Settings")
 
 // =============================================================================
-// ORB CALCULATION LOGIC
+// US MARKET AUTO-DETECTION - MORNING AND AFTERNOON SESSIONS
 // =============================================================================
 
-t = time(timeframe.period, sess + ":1234567")
-hide = timeframe.isintraday and timeframe.multiplier <= inputMax
+// US market opens at 9:30 EST/EDT - automatically detect this time
+us_market_open = time(timeframe.period, "0930-0930:23456", "America/New_York")
+is_us_market_open = not na(us_market_open)
+
+// Create ORB session from US market open + specified duration
+orb_start_hour = 9
+orb_start_minute = 30
+orb_end_minute = orb_start_minute + orb_duration_minutes
+
+// Handle minute overflow (e.g., 30 + 45 = 75 minutes = 1:15)
+orb_end_hour = orb_start_hour
+if orb_end_minute >= 60
+    orb_end_hour := orb_end_hour + math.floor(orb_end_minute / 60)
+    orb_end_minute := orb_end_minute % 60
+
+// Format time strings with leading zeros
+orb_start_time = str.format("{0,number,00}{1,number,00}", orb_start_hour, orb_start_minute)
+orb_end_time = str.format("{0,number,00}{1,number,00}", orb_end_hour, orb_end_minute)
+orb_session_string = orb_start_time + "-" + orb_end_time
+
+// Use US Eastern timezone for ORB session
+t = time(timeframe.period, orb_session_string + ":1234567", "America/New_York")
+hide = timeframe.isintraday and timeframe.multiplier <= orb_duration_minutes
 
 in_session = not na(t)
 is_first = in_session and not in_session[1]
 session_end = in_session[1] and not in_session
 
 // =============================================================================
-// CURRENT DAY FILTER - LAST BAR'S DATE AS "TODAY"
+// AUTOMATIC SESSION DETECTION WITH USER CHOICE
 // =============================================================================
 
-// Use the last bar's date as reference for "today"
-last_bar_day = dayofmonth(time[barstate.isrealtime ? 0 : 0], syminfo.timezone)
-last_bar_month = month(time[barstate.isrealtime ? 0 : 0], syminfo.timezone)
-last_bar_year = year(time[barstate.isrealtime ? 0 : 0], syminfo.timezone)
+// Convert US Eastern time to current chart timezone for session logic
+current_hour_et = hour(time, "America/New_York")
 
-// Check if current bar is from the same day as the last bar
-is_today = dayofmonth(time, syminfo.timezone) == last_bar_day and 
-           month(time, syminfo.timezone) == last_bar_month and 
-           year(time, syminfo.timezone) == last_bar_year
+// Auto-detect morning session: from market open (9:30 ET) to noon (12:00 ET)
+is_morning_period = current_hour_et >= 9 and current_hour_et < 12
 
-// =============================================================================
-// SESSION TIME LOGIC
-// =============================================================================
+// Auto-detect afternoon session: from noon (12:00 ET) to market close (4:00 PM ET = 16:00)
+is_afternoon_period = current_hour_et >= 12 and current_hour_et < 16
 
-current_hour = hour(time, syminfo.timezone)
-
-is_morning_period = current_hour >= 8 and current_hour < morning_end
-is_afternoon_period = current_hour >= 12 and current_hour < afternoon_end
-
+// User choice for session display
 show_in_current_session = false
 if session_display == "Morning Only"
     show_in_current_session := is_morning_period
@@ -60,12 +69,38 @@ else // "Till Afternoon"
     show_in_current_session := is_morning_period or is_afternoon_period
 
 // =============================================================================
+// LAST BAR DETECTION - FOR SHOWING ONLY MOST RECENT SESSION
+// =============================================================================
+
+// Detect if we are at or near the last available bar in the dataset
+is_last_bar = barstate.islast
+is_realtime = barstate.isrealtime or barstate.islast
+
+// Alternative: Use simple approach - only show for bars close to the end
+bars_from_end = last_bar_index - bar_index
+show_recent = bars_from_end <= 300 // Adjust this number as needed
+
+// =============================================================================
+// CURRENT DAY FILTER - REPLACED WITH RECENT SESSION FILTER
+// =============================================================================
+
+// Use the bar's own date as reference
+last_bar_day = dayofmonth(time, syminfo.timezone)
+last_bar_month = month(time, syminfo.timezone)
+last_bar_year = year(time, syminfo.timezone)
+
+is_today = dayofmonth(time, syminfo.timezone) == last_bar_day and month(time, syminfo.timezone) == last_bar_month and year(time, syminfo.timezone) == last_bar_year
+
+// REPLACE is_today with recent session detection for VWAP and FILL
+is_recent_session = is_realtime or barstate.islast or show_recent
+
+// =============================================================================
 // ORB HIGH/LOW TRACKING
 // =============================================================================
 
 var float stored_orb_high = na
 var float stored_orb_low = na
-var int orb_session_end_bar = na
+var int orb_session_start_bar = na
 var array<line> orb_lines = array.new<line>()
 
 orb_high = float(na)
@@ -74,6 +109,7 @@ orb_low = float(na)
 if is_first
     orb_high := high
     orb_low := low
+    orb_session_start_bar := bar_index
     // Clear old lines safely
     if array.size(orb_lines) > 0
         for i = 0 to array.size(orb_lines) - 1
@@ -82,7 +118,7 @@ if is_first
 else
     orb_high := orb_high[1]
     orb_low := orb_low[1]
-    
+
 if high > orb_high and in_session
     orb_high := high
 if low < orb_low and in_session
@@ -92,7 +128,6 @@ if low < orb_low and in_session
 if session_end
     stored_orb_high := orb_high
     stored_orb_low := orb_low
-    orb_session_end_bar := bar_index
 
 // =============================================================================
 // ORB EXTENSION LEVELS CALCULATION
@@ -110,17 +145,19 @@ low_ext2 = low_ext1 - half_range
 low_ext3 = low_ext2 - half_range
 
 // =============================================================================
-// UNIFIED DISPLAY CONDITION WITH TODAY FILTER
+// UNIFIED DISPLAY CONDITION - LINES USE is_today, VWAP/FILL USE is_recent_session
 // =============================================================================
 
-// All elements use the same condition - active during session AND lines are being drawn AND is today
-show_all_elements = not na(stored_orb_high) and show_in_current_session and not na(orb_session_end_bar) and is_today
+// Lines still use is_today (show in all historical days)
+show_all_elements = not na(stored_orb_high) and show_in_current_session and not na(orb_session_start_bar) and is_today
+
+// VWAP and Fill use recent session detection (show only in recent context)
+show_recent_elements = not na(stored_orb_high) and show_in_current_session and not na(orb_session_start_bar) and is_recent_session
 
 // =============================================================================
-// DYNAMIC LINES - UPDATE LENGTH EACH BAR
+// DYNAMIC LINES - FROM ORB START (UNCHANGED - STILL USE is_today)
 // =============================================================================
 
-// Update lines each bar to match fill length
 if show_all_elements
     
     // Clear old lines safely
@@ -129,53 +166,113 @@ if show_all_elements
             line.delete(array.get(orb_lines, i))
         array.clear(orb_lines)
     
-    // Draw lines from ORB session end to current bar
+    // Draw lines from ORB session START to current bar
     current_bar = bar_index
     
     // Draw ORB lines
-    array.push(orb_lines, line.new(orb_session_end_bar, stored_orb_high, current_bar, stored_orb_high, color=color.gray, width=2, style=line.style_solid))
-    array.push(orb_lines, line.new(orb_session_end_bar, stored_orb_low, current_bar, stored_orb_low, color=color.gray, width=2, style=line.style_solid))
+    array.push(orb_lines, line.new(orb_session_start_bar, stored_orb_high, current_bar, stored_orb_high, color=color.gray, width=2, style=line.style_solid))
+    array.push(orb_lines, line.new(orb_session_start_bar, stored_orb_low, current_bar, stored_orb_low, color=color.gray, width=2, style=line.style_solid))
     
     // Draw extension lines if enabled
     if show_extensions
-        array.push(orb_lines, line.new(orb_session_end_bar, high_ext1, current_bar, high_ext1, color=color.new(color.green, 30), width=1, style=line.style_solid))
-        array.push(orb_lines, line.new(orb_session_end_bar, high_ext2, current_bar, high_ext2, color=color.new(color.green, 50), width=1, style=line.style_solid))
-        array.push(orb_lines, line.new(orb_session_end_bar, high_ext3, current_bar, high_ext3, color=color.new(color.green, 70), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_start_bar, high_ext1, current_bar, high_ext1, color=color.new(color.green, 30), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_start_bar, high_ext2, current_bar, high_ext2, color=color.new(color.green, 50), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_start_bar, high_ext3, current_bar, high_ext3, color=color.new(color.green, 70), width=1, style=line.style_solid))
         
-        array.push(orb_lines, line.new(orb_session_end_bar, low_ext1, current_bar, low_ext1, color=color.new(color.red, 30), width=1, style=line.style_solid))
-        array.push(orb_lines, line.new(orb_session_end_bar, low_ext2, current_bar, low_ext2, color=color.new(color.red, 50), width=1, style=line.style_solid))
-        array.push(orb_lines, line.new(orb_session_end_bar, low_ext3, current_bar, low_ext3, color=color.new(color.red, 70), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_start_bar, low_ext1, current_bar, low_ext1, color=color.new(color.red, 30), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_start_bar, low_ext2, current_bar, low_ext2, color=color.new(color.red, 50), width=1, style=line.style_solid))
+        array.push(orb_lines, line.new(orb_session_start_bar, low_ext3, current_bar, low_ext3, color=color.new(color.red, 70), width=1, style=line.style_solid))
+
+    // MIDLINE as LINE
+    mid_orb = (stored_orb_high + stored_orb_low) / 2
+    array.push(orb_lines, line.new(orb_session_start_bar, mid_orb, current_bar, mid_orb, color=color.new(color.gray, 50), width=1, style=line.style_solid))
 
 // =============================================================================
-// VWAP CALCULATION
+// VWAP CALCULATION - FIXED WITHOUT WHITE BLOCKS
 // =============================================================================
 
+// VWAP should reset at the BEGINNING of ORB session, not at the end
 isNewPeriod = is_first
 
+// Always call ta.vwap every bar for consistency
+[_vwap, _stdevUpper, _] = ta.vwap(src, isNewPeriod, 1)
+
+// Store VWAP value - CHANGED: now only for recent session
 float vwapValue = na
-if show_vwap
-    [_vwap, _stdevUpper, _] = ta.vwap(src, isNewPeriod, 1)
+if show_vwap and not na(stored_orb_high)
     vwapValue := _vwap
 
-vwap_color = close > vwapValue ? color.green : color.red
+// TIME-BASED visibility control - show AFTER ORB session completes
+current_minute_et = minute(time, "America/New_York")
+current_time_minutes = current_hour_et * 60 + current_minute_et
 
-// Plot VWAP - synchronized with lines and only for today
-plot(show_vwap and show_all_elements ? vwapValue : na, title="VWAP", color=vwap_color, linewidth=2)
+// VWAP visible after ORB session ends (9:30 + duration)
+orb_end_minutes = orb_start_hour * 60 + orb_start_minute + orb_duration_minutes
+
+// VWAP color logic - PROPER HIDING WITHOUT WHITE BLOCKS
+vwap_color = color.white
+
+if show_recent_elements and not na(vwapValue) and current_time_minutes >= orb_end_minutes
+    // Normal green/red color ONLY for recent session after ORB completes
+    vwap_color := close > vwapValue ? color.green : color.red
+else if not na(vwapValue)
+    // TRANSPARENT instead of background color - NO WHITE BLOCKS
+    vwap_color := color.new(color.white, 100)
+
+// Plot VWAP - properly hidden in previous sessions
+plot(show_vwap and not na(vwapValue) ? vwapValue : na, title="VWAP", color=vwap_color, linewidth=2)
 
 // =============================================================================
-// GRAY FILL - SYNCHRONIZED WITH LINES AND ONLY FOR TODAY
+// GRAY FILL - FIXED WITHOUT WHITE BLOCKS
 // =============================================================================
 
-// Plot invisible lines for fill between ORB levels during session
-plotHigh = plot(show_all_elements ? stored_orb_high : na, color=color.new(color.white, 100), linewidth=0, title="ORB High Fill")
-plotLow = plot(show_all_elements ? stored_orb_low : na, color=color.new(color.white, 100), linewidth=0, title="ORB Low Fill")
+// Plot invisible lines for fill - NO CHANGE to this part
+plotHigh = plot(show_recent_elements ? stored_orb_high : na, color=color.new(color.white, 100), linewidth=1, title="ORB High Fill")
+plotLow = plot(show_recent_elements ? stored_orb_low : na, color=color.new(color.white, 100), linewidth=1, title="ORB Low Fill")
 
-// Fill between the invisible lines
-fill(plotHigh, plotLow, color=show_all_elements ? color.new(color.gray, 85) : na, title="ORB Fill")
+// Fill - NO CHANGE, this part was correct
+fill(plotHigh, plotLow, color=show_recent_elements ? color.new(color.gray, 85) : na, title="ORB Fill")
 
 // =============================================================================
-// MIDLINE - THIN GRAY LINE IN THE MIDDLE OF ORB RANGE
+// ALERT CONDITIONS - ONE ALERT FOR ALL ORB LEVEL BREACHES
 // =============================================================================
 
-mid_orb = (stored_orb_high + stored_orb_low) / 2
-plot(show_all_elements ? mid_orb : na, color=color.new(color.gray, 50), linewidth=1, title="ORB Midline")
+// Define all ORB levels for alert checking
+orb_levels_array = array.new<float>()
+
+if not na(stored_orb_high) and not na(stored_orb_low)
+    // Add main ORB levels
+    array.push(orb_levels_array, stored_orb_high)
+    array.push(orb_levels_array, stored_orb_low)
+    
+    // Add midline
+    mid_orb = (stored_orb_high + stored_orb_low) / 2
+    array.push(orb_levels_array, mid_orb)
+    
+    // Add extension levels if enabled
+    if show_extensions
+        array.push(orb_levels_array, high_ext1)
+        array.push(orb_levels_array, high_ext2)
+        array.push(orb_levels_array, high_ext3)
+        array.push(orb_levels_array, low_ext1)
+        array.push(orb_levels_array, low_ext2)
+        array.push(orb_levels_array, low_ext3)
+
+// Check for breaches of any ORB level
+var bool prev_breach = false
+current_breach = false
+
+if array.size(orb_levels_array) > 0 and show_all_elements
+    for i = 0 to array.size(orb_levels_array) - 1
+        level = array.get(orb_levels_array, i)
+        level_crossed = (close > level and close[1] <= level) or (close < level and close[1] >= level)
+        if level_crossed
+            current_breach := true
+            break
+
+// Alert condition - triggers only on new breaches
+alert_triggered = current_breach and not prev_breach
+prev_breach := current_breach
+
+// Single alert condition for all ORB level breaches
+alertcondition(alert_triggered, title="ORB Level Breach", message="Price breached an ORB level: {{ticker}} at {{close}}")

@@ -1,65 +1,168 @@
-# CCE - ORB Indicator for TradingView
+CCE - ORB Indicator
+Professional Pine Script indicator for Opening Range Breakout (ORB) strategies with automatic US market session detection and advanced features.
 
-**CCE - ORB** is a Pine Script indicator for TradingView that visualizes the **Opening Range Breakout (ORB)** and its extensions, including a middle line and optional VWAP. It is designed to be clear, flexible, and suitable for different trading strategies.
+🚀 Features
+✨ Core Features
+Automatic US market open detection (9:30 AM ET) - no manual time configuration needed
 
----
+Flexible ORB duration - set any number of minutes (5, 15, 30, etc.)
 
-## Features
+Extension levels - automatic 0.5x, 1x, 1.5x ORB range calculations
 
-- **ORB High/Low** – displays the high and low of the opening range.
-- **ORB Extensions** – visual projections of price levels above and below the ORB.
-- **Middle ORB Line** – a thin gray line across the center of the range for easy reference.
-- **VWAP** – optional Volume-Weighted Average Price for quick orientation.
-- **Gray Fill** – shaded area between ORB high and low for better visualization.
-- **Time Filters** – display only during the morning session or until the afternoon.
-- **Dynamic Updates** – all lines extend automatically to the current bar.
-- **Today-Only Display** – the indicator only plots for the current trading day.
+VWAP integration - resets at ORB session start
 
----
+Gray fill between ORB high/low for better visualization
 
-## Installation
+Universal alert for all ORB level breaches
 
-1. Open TradingView.
-2. Go to the `Pine Editor` at the bottom.
-3. Copy the `CCE - ORB` script into the editor.
-4. Click `Add to Chart`.
+📊 Displayed Levels
+ORB High/Low - main support/resistance levels (gray lines)
 
----
+Midline - center of ORB range (gray dashed)
 
-## Inputs / Settings
+Extension levels:
 
-### ORB Settings
-- **ORB total time (minutes)** – duration of the opening range.
-- **ORB Session Time** – specify the start and end time of the ORB session.
-- **Show Extension Levels** – toggle extension lines on/off.
+0.5x (light green/red)
 
-### Session Display
-- **Display Sessions** – choose `Morning Only` or `Till Afternoon`.
-- **Morning End Hour** – hour at which the morning session ends.
-- **Afternoon End Hour** – hour at which the afternoon session ends.
+1x (medium green/red)
 
-### VWAP Settings
-- **Show VWAP** – toggle VWAP display on/off.
-- **Source** – price source for VWAP calculation.
+1.5x (dark green/red)
 
----
+VWAP - volume weighted average price (green/red based on position)
 
-## Notes
+⚙️ Settings
+ORB Settings
+Parameter	Description	Default Value
+ORB Duration	Length of ORB session in minutes	15 minutes
+Show Extension Levels	Show/hide extension levels	Enabled
+Session Settings
+Parameter	Description	Options
+Display Sessions	When to display ORB levels	Morning Only / Till Afternoon
+Morning Only: 9:30 AM - 12:00 PM ET
 
-- The indicator updates dynamically as new bars are formed.
-- VWAP is only plotted for the current session and for today’s bars.
-- The middle ORB line is aligned with the center of the range and extends across the gray fill.
-- Works best on intraday timeframes.
+Till Afternoon: 9:30 AM - 4:00 PM ET
 
----
+VWAP Settings
+Parameter	Description	Default Value
+Show VWAP	Show/hide VWAP	Enabled
+Source	Data source for VWAP calculation	HLC3
+🕒 Timing
+Automatic US Market Hours Detection
+The indicator automatically detects:
 
-## License
+Market Open: 9:30 AM Eastern Time
 
-MIT License – feel free to use, modify, and share.
+ORB Session: 9:30 AM + specified duration (e.g., 9:30-9:45 for 15min ORB)
 
----
+Morning Session: 9:30 AM - 12:00 PM ET
 
-## Author
+Afternoon Session: 12:00 PM - 4:00 PM ET
 
-CCE_Charts  
-GitHub: ylohnitram
+Timezone Handling
+Everything runs on America/New_York timezone
+
+Automatic EST/EDT switching (daylight/standard time)
+
+Independent of your local timezone
+
+📈 Indicator Behavior
+ORB Lines (gray lines)
+Start: From ORB session beginning (e.g., 9:30)
+
+Display: All day according to Session Settings
+
+Update: Dynamically extend to current bar
+
+VWAP (green/red line)
+Resets: At ORB session start (9:30)
+
+Displays: Only after ORB session ends (9:45)
+
+Color:
+
+🟢 Green = Close > VWAP
+
+🔴 Red = Close < VWAP
+
+⚪ Invisible = outside valid session or before ORB completion
+
+Gray Fill
+Fills space between ORB High and ORB Low
+
+Shows only in most recent session (last ~300 bars)
+
+85% transparency for better readability
+
+🚨 Alerts
+Universal Alert for All ORB Levels
+One alert covers breaches of all levels:
+
+ORB High/Low
+
+Midline
+
+All Extension levels
+
+Alert triggers on:
+
+Breach of any ORB level in either direction
+
+Only on new breaches (not continuously)
+
+Only when ORB levels are active
+
+Alert message: "Price breached an ORB level: {ticker} at {close}"
+
+🎯 Usage
+For Day Trading
+Set ORB duration according to your strategy (typically 15-30 minutes)
+
+Watch for first breach of ORB High/Low after 9:45 AM
+
+Use Extension levels as profit targets
+
+VWAP as filter - long positions above VWAP, short below VWAP
+
+For Swing Trading
+Set "Till Afternoon" for full trading day
+
+Use Extension levels for larger price targets
+
+VWAP trend as long-term direction
+
+For Backtesting
+Indicator works correctly in Replay mode
+
+Gray fill and VWAP display only in current period
+
+Lines remain visible throughout history
+
+🔧 Installation
+Open Pine Script Editor in TradingView
+
+Delete default code and paste the complete indicator code
+
+Click "Add to Chart"
+
+Configure parameters according to your needs
+
+📋 Compatibility
+Pine Script v5
+
+Timeframes: All intraday timeframes (1m, 5m, 15m, etc.)
+
+Symbols: US stocks and ETFs with trading hours 9:30-16:00 ET
+
+TradingView: All account types
+
+❗ Important Notes
+Works only on US market symbols (NYSE, NASDAQ)
+
+Requires intraday timeframe for proper function
+
+VWAP resets daily at ORB session start
+
+Extension levels are calculated based on ORB range (high-low)
+
+🤝 Support
+For questions, bug reports, or suggestions, please create an Issue in this repository.
