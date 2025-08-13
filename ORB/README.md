@@ -166,3 +166,5 @@ Extension levels are calculated based on ORB range (high-low)
 
 🤝 Support
 For questions, bug reports, or suggestions, please create an Issue in this repository.
+
+⚡ For best results, use on 5M or 15M timeframe with US stocks.
